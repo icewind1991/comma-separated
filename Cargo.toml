@@ -4,5 +4,6 @@ version = "0.1.0"
 edition = "2021"
 description = "Iterator over a comma-seperated string, ignoring any commas inside quotes"
 repository = "https://github.com/icewind1991/comma-separated"
+rust-version = "1.56.1"
 
 [dependencies]
