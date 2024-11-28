@@ -47,9 +47,9 @@ impl<'a> Iterator for CommaSeparatedIterator<'a> {
         }
 
         let mut state = CommaSeparatedIteratorState::Default;
-        let mut char_indices = self.remaining.char_indices();
+        let char_indices = self.remaining.char_indices();
 
-        for (i, c) in &mut char_indices {
+        for (i, c) in char_indices {
             state = match (state, c) {
                 (CommaSeparatedIteratorState::Default, '"') => {
                     CommaSeparatedIteratorState::Quoted(Quote::Double)
@@ -84,6 +84,52 @@ impl<'a> Iterator for CommaSeparatedIterator<'a> {
     }
 }
 
+impl<'a> DoubleEndedIterator for CommaSeparatedIterator<'a> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        if self.remaining.is_empty() {
+            return None;
+        }
+
+        let mut state = CommaSeparatedIteratorState::Default;
+        let mut char_indices = self.remaining.char_indices().rev().peekable();
+
+        while let Some((i, c)) = char_indices.next() {
+            state = match (state, c) {
+                (CommaSeparatedIteratorState::Default, '"') => {
+                    CommaSeparatedIteratorState::Quoted(Quote::Double)
+                }
+                (CommaSeparatedIteratorState::Default, '\'') => {
+                    CommaSeparatedIteratorState::Quoted(Quote::Single)
+                }
+                (CommaSeparatedIteratorState::Quoted(quote @ Quote::Double), '"')
+                | (CommaSeparatedIteratorState::Quoted(quote @ Quote::Single), '\'') => {
+                    if char_indices.peek().map(|(_, c)| *c) == Some('\\') {
+                        CommaSeparatedIteratorState::Quoted(quote)
+                    } else {
+                        CommaSeparatedIteratorState::Default
+                    }
+                }
+                (CommaSeparatedIteratorState::Quoted(quote), _) => {
+                    CommaSeparatedIteratorState::Quoted(quote)
+                }
+                (CommaSeparatedIteratorState::QuotedEscape(quote), _) => {
+                    CommaSeparatedIteratorState::Quoted(quote)
+                }
+                (CommaSeparatedIteratorState::Default, ',') => {
+                    let result = &self.remaining[i + 1..];
+                    self.remaining = &self.remaining[0..i];
+                    return Some(result);
+                }
+                (CommaSeparatedIteratorState::Default, _) => CommaSeparatedIteratorState::Default,
+            };
+        }
+
+        let result = self.remaining;
+        self.remaining = "";
+        Some(result)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::CommaSeparatedIterator;
@@ -91,9 +137,16 @@ mod tests {
     #[test]
     fn test_comma_separated_iterator() {
         assert_eq!(
-            vec!["abc", "def", " ghi", "\tjkl ", " mno", "\tpqr"],
-            CommaSeparatedIterator::new("abc,def, ghi,\tjkl , mno,\tpqr").collect::<Vec<&str>>()
+            vec!["abc", "def", " ghi", "\tjkl", "mno", "\tpqr"],
+            CommaSeparatedIterator::new("abc,def, ghi,\tjkl,mno,\tpqr").collect::<Vec<&str>>()
         );
+        assert_eq!(
+            vec!["\tpqr", "mno", "\tjkl", " ghi", "def", "abc"],
+            CommaSeparatedIterator::new("abc,def, ghi,\tjkl,mno,\tpqr")
+                .rev()
+                .collect::<Vec<&str>>()
+        );
+
         assert_eq!(
             vec![
                 r#""abc,def""#,
@@ -110,7 +163,32 @@ mod tests {
             CommaSeparatedIterator::new(
                 r#""abc,def", "ghi","jkl" , "mno",pqr, "abc, def", foo, " foo", ',foo', "fo'o""#
             )
-                .collect::<Vec<&str>>()
+            .collect::<Vec<&str>>()
         );
+        assert_eq!(
+            vec![
+                " \"fo'o\"",
+                " ',foo'",
+                " \" foo\"",
+                " foo",
+                " \"abc, def\"",
+                "pqr",
+                " \"mno\"",
+                "\"jkl\" ",
+                " \"ghi\"",
+                r#""abc,def""#,
+            ],
+            CommaSeparatedIterator::new(
+                r#""abc,def", "ghi","jkl" , "mno",pqr, "abc, def", foo, " foo", ',foo', "fo'o""#
+            )
+            .rev()
+            .collect::<Vec<&str>>()
+        );
+
+        let mut iter = CommaSeparatedIterator::new("a,b,c,d");
+        assert_eq!(Some("a"), iter.next());
+        assert_eq!(Some("d"), iter.next_back());
+        assert_eq!(Some("b"), iter.next());
+        assert_eq!(Some("c"), iter.next_back());
     }
 }
