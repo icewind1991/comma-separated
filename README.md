@@ -1,3 +1,5 @@
+# Moved to https://codeberg.org/icewind/comma-separated
+
 # Comma-separated
 
 Iterator over a comma-seperated string, ignoring any commas inside quotes
